@@ -13,7 +13,7 @@ from .convert import GRIB_TO_CF, GRIB_TO_XARRAY_PL, GRIB_TO_XARRAY_SFC
 
 LOG = logging.getLogger(__name__)
 
-
+# change the all fields so that it is a cml thing (if possible)
 def save_output_xarray(
     *,
     output,

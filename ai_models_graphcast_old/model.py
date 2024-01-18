@@ -9,40 +9,17 @@
 import dataclasses
 import datetime
 import functools
-import gc
 import logging
 import os
 from functools import cached_property
 
 import xarray
-import numpy as np
-import pandas as pd
-import climetlab as cml
 from ai_models.model import Model
 
 from .input import create_training_xarray
 from .output import save_output_xarray
 
 LOG = logging.getLogger(__name__)
-
-VARS_SFC = ["u10", "v10", "t2m", "lsm", "msl", "tp", "z"]
-VARS_PL = ["q", "t", "u", "v", "w", "z"]
-PL_LEVS = [50, 100, 150, 200, 250, 300, 400, 500, 600, 700, 850, 925, 1000]
-
-GRIB_TO_XARRAY = {
-    "2m_temperature": "t2m",
-    "mean_sea_level_pressure": "msl",
-    "10m_u_component_of_wind": "u10",
-    "10m_v_component_of_wind": "v10",
-    "total_precipitation_6hr": "tp",
-    "temperature": "t",
-    "geopotential": "z",
-    "u_component_of_wind": "u",
-    "v_component_of_wind": "v",
-    "vertical_velocity": "w",
-    "specific_humidity": "q",
-    "level": "isobaricInhPa",
-}
 
 
 try:
@@ -59,7 +36,7 @@ try:
 except ModuleNotFoundError as e:
     msg = "You need to install Graphcast from git to use this model. See README.md for details."
     LOG.error(msg)
-    raise ModuleNotFoundError(f"{msg}\n{e}")
+    raise ModuleNotFoundError(e + msg)
 
 
 class GraphcastModel(Model):
@@ -104,7 +81,7 @@ class GraphcastModel(Model):
 
     use_an = False
 
-    def __init__(self, **kwargs):   
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.hour_steps = 6
         self.lagged = [-6, 0]
@@ -211,48 +188,36 @@ class GraphcastModel(Model):
 
     @cached_property
     def start_date(self) -> "datetime":
-        if not isinstance(self.all_fields, list):
-            return self.all_fields.order_by(valid_datetime="descending")[0].datetime()
-        else:
-            return np.sort(self.fields_sfc.valid_time.values)[-1]
+        return self.all_fields.order_by(valid_datetime="descending")[0].datetime
 
     def run(self):
         with self.timer("Building model"):
             self.load_model()
         # all_fields = self.all_fields.to_xarray()
 
-        with self.timer("Creating input data (total)"):
-            with self.timer("Creating training data"):
-                training_xarray, time_deltas = create_training_xarray(
-                    fields_sfc=self.fields_sfc[VARS_SFC] if isinstance(self.all_fields, list) else self.fields_sfc,
-                    fields_pl=self.fields_pl.sel(isobaricInhPa=PL_LEVS)[VARS_PL] if isinstance(self.all_fields, list) else self.fields_pl,
-                    lagged=self.lagged,
-                    start_date=self.start_date,
-                    hour_steps=self.hour_steps,
-                    lead_time=self.lead_time,
-                    forcing_variables=self.forcing_variables,
-                    constants=self.override_constants,
-                    timer=self.timer,
-                )
-
-            gc.collect()
+        with self.timer("Creating input data"):
+            training_xarray, time_deltas = create_training_xarray(
+                fields_sfc=self.fields_sfc,
+                fields_pl=self.fields_pl,
+                lagged=self.lagged,
+                start_date=self.start_date,
+                hour_steps=self.hour_steps,
+                lead_time=self.lead_time,
+                forcing_variables=self.forcing_variables,
+                constants=self.override_constants,
+            )
 
             if self.debug:
                 training_xarray.to_netcdf("training_xarray.nc")
 
-            with self.timer("Extracting input targets"):
-                (
-                    input_xr,
-                    template,
-                    forcings,
-                ) = data_utils.extract_inputs_targets_forcings(
-                    training_xarray,
-                    target_lead_times=[
-                        f"{int(pd.TimedeltaIndex([delta])[0].days * 24 + pd.TimedeltaIndex([delta])[0].seconds/3600):d}h"
-                        for delta in time_deltas[len(self.lagged) :]
-                    ],
-                    **dataclasses.asdict(self.task_config),
-                )
+            input_xr, template, forcings = data_utils.extract_inputs_targets_forcings(
+                training_xarray,
+                target_lead_times=[
+                    f"{int(delta.days * 24 + delta.seconds/3600):d}h"
+                    for delta in time_deltas[len(self.lagged) :]
+                ],
+                **dataclasses.asdict(self.task_config),
+            )
 
             if self.debug:
                 input_xr.to_netcdf("input_xr.nc")
@@ -270,25 +235,16 @@ class GraphcastModel(Model):
                 output.to_netcdf("output.nc")
 
         with self.timer("Saving output data"):
-            if isinstance(self.all_fields, list):
-                name = "/work/FAC/FGSE/IDYST/tbeucler/default/raw_data/ML_PREDICT/graphcast/" +\
-                    f"graphcast_{np.datetime64(self.start_date, 'h')}_to_{np.datetime64(self.start_date + np.timedelta64(self.lead_time, 'h'), 'h')}"+\
-                    f"_ldt_{self.lead_time}.nc"
-                for var in output.data_vars:
-                    output[var] = output[var].squeeze(dim="batch", drop=True)
-                output = output.rename(GRIB_TO_XARRAY)
-                output.to_netcdf(name)
-            else:
-                save_output_xarray(
-                    output=output,
-                    write=self.write,
-                    target_variables=self.task_config.target_variables,
-                    all_fields=self.all_fields,
-                    ordering=self.ordering,
-                    lead_time=self.lead_time,
-                    hour_steps=self.hour_steps,
-                    lagged=self.lagged,
-                )
+            save_output_xarray(
+                output=output,
+                write=self.write,
+                target_variables=self.task_config.target_variables,
+                all_fields=self.all_fields,
+                ordering=self.ordering,
+                lead_time=self.lead_time,
+                hour_steps=self.hour_steps,
+                lagged=self.lagged,
+            )
 
     def patch_retrieve_request(self, r):
         if r.get("class", "od") != "od":
