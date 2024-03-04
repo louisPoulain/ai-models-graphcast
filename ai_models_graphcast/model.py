@@ -268,10 +268,11 @@ class GraphcastModel(Model):
 
             if self.debug:
                 output.to_netcdf("output.nc")
-
+        
+        #/work/FAC/FGSE/IDYST/tbeucler/default/raw_data/ML_PREDICT/
         with self.timer("Saving output data"):
-            if isinstance(self.all_fields, list):
-                name = "/work/FAC/FGSE/IDYST/tbeucler/default/raw_data/ML_PREDICT/graphcast/" +\
+            if isinstance(self.all_fields, list):   
+                name = "/work/FAC/FGSE/IDYST/tbeucler/default/raw_data/AI-milton/graphcast/" +\
                     f"graphcast_{np.datetime64(self.start_date, 'h')}_to_{np.datetime64(self.start_date + np.timedelta64(self.lead_time, 'h'), 'h')}"+\
                     f"_ldt_{self.lead_time}.nc"
                 for var in output.data_vars:
