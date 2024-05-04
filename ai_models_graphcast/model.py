@@ -12,6 +12,7 @@ import functools
 import gc
 import logging
 import os
+import yaml
 from functools import cached_property
 
 import xarray
@@ -271,26 +272,33 @@ class GraphcastModel(Model):
         
         #/work/FAC/FGSE/IDYST/tbeucler/default/raw_data/ML_PREDICT/
         with self.timer("Saving output data"):
-            if isinstance(self.all_fields, list):   
-                name = "/work/FAC/FGSE/IDYST/tbeucler/default/raw_data/AI-milton/graphcast/" +\
-                    f"graphcast_{np.datetime64(self.start_date, 'h')}_to_{np.datetime64(self.start_date + np.timedelta64(self.lead_time, 'h'), 'h')}"+\
+            if isinstance(self.all_fields, list):
+                
+                with open("/users/lpoulain/louis/TCBench_0.1/slurms/models_config.yml", 'r') as f:
+                    folder = yaml.full_load(f).get("graphcast_folder")
+                    
+                name = f"graphcast_{np.datetime64(self.start_date, 'h')}_to_{np.datetime64(self.start_date + np.timedelta64(self.lead_time, 'h'), 'h')}"+\
                     f"_ldt_{self.lead_time}.nc"
+                name = os.path.join(folder, name)
+                
+                print("Saving data to:", name)
                 for var in output.data_vars:
                     output[var] = output[var].squeeze(dim="batch", drop=True)
                 output = output.rename(GRIB_TO_XARRAY)
                 output["time"] = [np.datetime64(self.start_date + t, 'h') for t in output.time.values]
-                encoding = {}
-                for data_var in output.data_vars:
-                    encoding[data_var] = {
-                    "original_shape": output[data_var].shape,
-                    "_FillValue": -32767,
-                    "dtype": np.int16,
-                    "add_offset": output[data_var].mean().compute().values,
-                    "scale_factor": output[data_var].std().compute().values / 1000, # save up to 32 std
-                    # "zlib": True,
-                    # "complevel": 5,
-                    }
-                output.to_netcdf(name, engine="netcdf4", mode="w", encoding=encoding, compute=True)
+                #encoding = {}
+                #for data_var in output.data_vars:
+                #    encoding[data_var] = {
+                #    "original_shape": output[data_var].shape,
+                #    "_FillValue": -32767,
+                #    "dtype": np.int16,
+                #    "add_offset": output[data_var].mean().compute().values,
+                #    "scale_factor": output[data_var].std().compute().values / 1000, # save up to 32 std
+                #    # "zlib": True,
+                #    # "complevel": 5,
+                #    }
+                #output.to_netcdf(name, engine="netcdf4", mode="w", encoding=encoding, compute=True)
+                output.to_netcdf(name, engine="netcdf4", mode="w", compute=True)
             else:
                 save_output_xarray(
                     output=output,
