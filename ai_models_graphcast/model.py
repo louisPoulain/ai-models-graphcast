@@ -274,7 +274,7 @@ class GraphcastModel(Model):
         with self.timer("Saving output data"):
             if isinstance(self.all_fields, list):
                 
-                with open("/users/lpoulain/louis/TCBench_0.1/slurms/models_config.yml", 'r') as f:
+                with open("/work/FAC/FGSE/IDYST/tbeucler/default/raw_data/ML_PREDICT/models_config.yml", 'r') as f:
                     folder = yaml.full_load(f).get("graphcast_folder")
                     
                 name = f"graphcast_{np.datetime64(self.start_date, 'h')}_to_{np.datetime64(self.start_date + np.timedelta64(self.lead_time, 'h'), 'h')}"+\
